@@ -48,6 +48,9 @@ Global Version.s="0.1d"
 ; Fixed batch procedure error if no folder selected.
 ; Changed 'Command Line' procedures to macros.
 ; Added console output to image conversion to speed up operation.
+; Changed gadget positions
+; Added zoomable preview window
+; Added more scaling types
 ;
 ;- ############### Enumerations
 
@@ -55,8 +58,9 @@ XIncludeFile "TinyIFF.pbi"
 
 Enumeration
   #MAIN_WINDOW
+  #PREVIEW_WINDOW
   #OPEN_BUTTON
-  #IMAGE_GADGET
+  #IMAGE_CANVAS
   #CLOSE_BUTTON
   #START_BUTTON
   #OUTPUT_STRING
@@ -64,6 +68,9 @@ Enumeration
   #INPUT_STRING
   #INPUT_BUTTON
   #APPEND_STRING
+  #PREVIEW_BUTTON
+  #PREVIEW_IMAGE
+  #PREVIEW_IMAGE_CANVAS
   #HORIZ_RES_STRING
   #VERT_RES_STRING
   #QUICK_RES_COMBO
@@ -107,6 +114,8 @@ Global itype_ext.s="iff"
 Global count.i
 Global overwrite.b=#True
 Global append.s=""
+Global zoom=1
+Global preview_w, preview_h
 
 ;- ############### Procedures
 
@@ -125,6 +134,16 @@ EndMacro
 
 Macro DpiY(value) ; <--------------------------------------------------> DPI Y Scaling
   DesktopScaledY(value)
+EndMacro
+
+Macro Center_Frame(value)
+  
+  SetWindowLongPtr_(GadgetID(value), #GWL_STYLE, GetWindowLongPtr_(GadgetID(value), #GWL_STYLE) | #BS_CENTER)
+  
+EndMacro
+
+Macro Window_Update() ; <---------------------------------------------> Waits For Window Update
+  While WindowEvent() : Wend
 EndMacro
 
 Procedure.b Load_IFF(path.s,imagenum.l)
@@ -170,9 +189,16 @@ Macro Make_Command_line()
     If vert_res<>0 And horiz_res<>0
       commandline+" -resize "+horiz_res+" "+vert_res
         Select resize
-          Case 1 : commandline+" -rtype lanczos"
-          Case 2 : commandline+" -rtype quick"
-          Case 3 : commandline+" -rtype mitchell"
+        Case 1 : full_commandline+" -rtype quick"
+        Case 2 : full_commandline+" -rtype linear"
+        Case 3 : full_commandline+" -rtype hermite"
+        Case 4 : full_commandline+" -rtype gaussian"
+        Case 5 : full_commandline+" -rtype bell"
+        Case 6 : full_commandline+" -rtype bspline"
+        Case 7 : full_commandline+" -rtype mitchell"
+        Case 8 : full_commandline+" -rtype hanning"
+        Case 9 : full_commandline+" -rtype lanczos"
+        Case 10 : full_commandline+" -rtype lanczos2"
         EndSelect
     EndIf
   EndIf
@@ -195,14 +221,26 @@ Macro Make_Command_line()
   
 EndMacro
 
-Macro Make_Full_Command_line()
+Procedure Make_Full_Command_line(preview.b)
+  
+  Protected n_ext.s, n_path.s
   
   full_commandline=""
+  
   If overwrite
     full_commandline+" -overwrite "
   EndIf
-  full_commandline+" -out "+itype_ext
-  full_commandline+" -o "+#DOUBLEQUOTE$+output_path+output_name+append+"."+itype_ext+#DOUBLEQUOTE$
+  
+  If preview
+    n_ext="png"
+    n_path=Home_Path+"preview"
+  Else
+    n_ext=itype_ext
+    n_path=output_path+output_name
+  EndIf
+  
+  full_commandline+" -out "+n_ext
+  full_commandline+" -o "+#DOUBLEQUOTE$+n_path+"."+n_ext+#DOUBLEQUOTE$
   
   If itype=0
     full_commandline+" -c 1"
@@ -212,9 +250,16 @@ Macro Make_Full_Command_line()
     If vert_res<>0 And horiz_res<>0
       full_commandline+" -resize "+horiz_res+" "+vert_res
       Select resize
-        Case 1 : full_commandline+" -rtype lanczos"
-        Case 2 : full_commandline+" -rtype quick"
-        Case 3 : full_commandline+" -rtype mitchell"
+        Case 1 : full_commandline+" -rtype quick"
+        Case 2 : full_commandline+" -rtype linear"
+        Case 3 : full_commandline+" -rtype hermite"
+        Case 4 : full_commandline+" -rtype gaussian"
+        Case 5 : full_commandline+" -rtype bell"
+        Case 6 : full_commandline+" -rtype bspline"
+        Case 7 : full_commandline+" -rtype mitchell"
+        Case 8 : full_commandline+" -rtype hanning"
+        Case 9 : full_commandline+" -rtype lanczos"
+        Case 10 : full_commandline+" -rtype lanczos2"
       EndSelect
     EndIf
   EndIf
@@ -233,7 +278,7 @@ Macro Make_Full_Command_line()
     full_commandline+" "+#DOUBLEQUOTE$+input_path+input_name+#DOUBLEQUOTE$
   EndIf
   
-EndMacro
+EndProcedure
 
 Macro Update_Commandline()
   Make_Command_line()
@@ -252,6 +297,18 @@ EndMacro
 Macro Resume_Window(window)
   SendMessage_(WindowID(window),#WM_SETREDRAW,#True,0)
   RedrawWindow_(WindowID(window),#Null,#Null,#RDW_INVALIDATE)
+EndMacro
+
+Macro Draw_Preview()
+  
+  StartDrawing(CanvasOutput(#PREVIEW_IMAGE_CANVAS))
+  DrawImage(ImageID(#PREVIEW_IMAGE),0,0)
+;   DrawingMode(#PB_2DDrawing_AlphaBlend)
+;   FrontColor(RGBA(255,0,255,255))
+;   BackColor(RGBA(0,0,0,0))
+;   DrawText(5,DpiY(WindowHeight(#PREVIEW_WINDOW)-20),Str(ImageWidth(#PREVIEW_IMAGE))+" x "+Str(ImageHeight(#PREVIEW_IMAGE)))
+  StopDrawing()
+  
 EndMacro
 
 Procedure Batch_Convert()
@@ -302,7 +359,7 @@ Procedure Batch_Convert()
         PrintN("Converting: "+Batch_list())
         input_name=GetFilePart(Batch_list())
         output_name=GetFilePart(Batch_list(),#PB_FileSystem_NoExtension)
-        Make_Full_Command_line()
+        Make_Full_Command_line(#False)
         RunProgram(GetFilePart(NConvert_Path),full_commandline,GetPathPart(NConvert_Path),#PB_Program_Wait)
       Next
       RunProgram(output_path,"","")
@@ -353,7 +410,7 @@ Procedure Batch_Convert_Drop(filelist.s)
       PrintN("Converting: "+Batch_list())
       input_name=GetFilePart(Batch_list())
       output_name=GetFilePart(Batch_list(),#PB_FileSystem_NoExtension)
-      Make_Full_Command_line()
+      Make_Full_Command_line(#False)
       RunProgram(GetFilePart(NConvert_Path),full_commandline,GetPathPart(NConvert_Path),#PB_Program_Wait)
     Next
     RunProgram(output_path,"","")
@@ -365,40 +422,61 @@ Procedure Batch_Convert_Drop(filelist.s)
   
 EndProcedure
 
+Procedure Preview_Window()
+  
+  OpenConsole("Processing...")
+  Center_Console()
+  
+  Make_Full_Command_line(#True)
+  RunProgram(GetFilePart(NConvert_Path),full_commandline,GetPathPart(NConvert_Path),#PB_Program_Wait)
+  
+  CloseConsole()
+  
+  LoadImage(#PREVIEW_IMAGE,Home_Path+"preview.png")
+  
+  DisableWindow(#MAIN_WINDOW,#True)
+  
+  OpenWindow(#PREVIEW_WINDOW, 0, 0, DesktopUnscaledX(ImageWidth(#PREVIEW_IMAGE)), DesktopUnscaledY(ImageHeight(#PREVIEW_IMAGE)), "Preview Window (F1 to zoom)", #PB_Window_SystemMenu | #PB_Window_WindowCentered, WindowID(#MAIN_WINDOW))
+  CanvasGadget(#PREVIEW_IMAGE_CANVAS,0,0,WindowWidth(#PREVIEW_WINDOW),WindowHeight(#PREVIEW_WINDOW))
+  
+  SetActiveWindow(#PREVIEW_WINDOW)
+  
+  Draw_Preview()
+  
+EndProcedure
+
 Procedure Create_Window()
   
-  If OpenWindow(#MAIN_WINDOW,0,0,670,195,"Image Converter v"+Version,#PB_Window_SystemMenu|#PB_Window_ScreenCentered)
+  Protected fgadget
+  
+  If OpenWindow(#MAIN_WINDOW,0,0,670,190,"Image Converter v"+Version,#PB_Window_SystemMenu|#PB_Window_ScreenCentered)
     
     Pause_Window(#MAIN_WINDOW)
     
-    FrameGadget(#PB_Any,5,0,425,50,"Command Line")
+    fgadget=FrameGadget(#PB_Any,5,0,425,50,"Command Line")
+    Center_Frame(fgadget)
     StringGadget(#COMMAND_STRING,10,20,350,20,"",#PB_String_ReadOnly)
     SetGadgetColor(#COMMAND_STRING,#PB_Gadget_FrontColor,#White)
     SetGadgetColor(#COMMAND_STRING,#PB_Gadget_BackColor,#Black)
-    
-    
     TextGadget(#PB_Any,365,0,55,20," Append ")
     StringGadget(#APPEND_STRING,365,20,60,20,append)
     SetGadgetColor(#APPEND_STRING,#PB_Gadget_FrontColor,#White)
     SetGadgetColor(#APPEND_STRING,#PB_Gadget_BackColor,#Black)
             
-    FrameGadget(#PB_Any,5,50,210,70,"Images")
+    fgadget=FrameGadget(#PB_Any,5,50,210,70,"Images")
+    Center_Frame(fgadget)
     StringGadget(#INPUT_STRING,10,70,95,22,"",#PB_String_ReadOnly)
-    
     StringGadget(#OUTPUT_STRING,110,70,100,22,output_name)
     ButtonGadget(#INPUT_BUTTON,10,94,95,22,"Input Image")
     ButtonGadget(#OUTPUT_BUTTON,110,94,100,22,"Output Image")
-    
     EnableGadgetDrop(#INPUT_STRING,#PB_Drop_Files,#PB_Drag_Copy)
     
-    FrameGadget(#PB_Any,220,50,210,70,"Resolution")
-    TextGadget(#PB_Any,235,70,70,22,"Output Res.")
-    StringGadget(#HORIZ_RES_STRING,225,90,40,22,Str(vert_res),#PB_String_Numeric)
-    TextGadget(#PB_Any,268,91,10,22,"x")
-    StringGadget(#VERT_RES_STRING,275,90,40,22,Str(horiz_res),#PB_String_Numeric)
-    
-    TextGadget(#PB_Any,330,70,70,20,"Quick Res.")
-    ComboBoxGadget(#QUICK_RES_COMBO,320,90,105,22)
+    fgadget=FrameGadget(#PB_Any,220,50,100,70,"Resize")
+    Center_Frame(fgadget)
+    StringGadget(#HORIZ_RES_STRING,225,70,37,22,Str(vert_res),#PB_String_Numeric)
+    TextGadget(#PB_Any,268,71,10,22,"x")
+    StringGadget(#VERT_RES_STRING,280,70,37,22,Str(horiz_res),#PB_String_Numeric)  
+    ComboBoxGadget(#QUICK_RES_COMBO,225,94,90,22)
     AddGadgetItem(#QUICK_RES_COMBO,-1,"No Resize") 
     AddGadgetItem(#QUICK_RES_COMBO,-1,"320 x 128")
     AddGadgetItem(#QUICK_RES_COMBO,-1,"320 x 256")
@@ -411,27 +489,34 @@ Procedure Create_Window()
     AddGadgetItem(#QUICK_RES_COMBO,-1,"1280 x 720")
     AddGadgetItem(#QUICK_RES_COMBO,-1,"1920 x 1080")
     AddGadgetItem(#QUICK_RES_COMBO,-1,"Custom")
-
     SetGadgetState(#QUICK_RES_COMBO,q_res)
     
-    FrameGadget(#PB_Any,5,120,140,70,"Resize")
+    fgadget=FrameGadget(#PB_Any,5,120,140,65,"Resize Options")
+    Center_Frame(fgadget)
     TextGadget(#PB_Any,25,140,60,20,"Type")
     ComboBoxGadget(#RESIZE_METHOD,10,160,60,20)
     AddGadgetItem(#RESIZE_METHOD,-1,"None")
-    AddGadgetItem(#RESIZE_METHOD,-1,"Lanczos")
-    AddGadgetItem(#RESIZE_METHOD,-1,"Quick") 
+    AddGadgetItem(#RESIZE_METHOD,-1,"Quick")
+    AddGadgetItem(#RESIZE_METHOD,-1,"Bilinear") 
+    AddGadgetItem(#RESIZE_METHOD,-1,"Hermite")
+    AddGadgetItem(#RESIZE_METHOD,-1,"Gaussian")
+    AddGadgetItem(#RESIZE_METHOD,-1,"Bell")
+    AddGadgetItem(#RESIZE_METHOD,-1,"BSpline")
     AddGadgetItem(#RESIZE_METHOD,-1,"Mitchell")
-    SetGadgetState(#RESIZE_METHOD,resize)
+    AddGadgetItem(#RESIZE_METHOD,-1,"Hanning")
+    AddGadgetItem(#RESIZE_METHOD,-1,"Lanczos")
+    AddGadgetItem(#RESIZE_METHOD,-1,"Lanczos2")
     
+    SetGadgetState(#RESIZE_METHOD,resize)
     TextGadget(#PB_Any,90,140,70,20,"Dither")
     ComboBoxGadget(#DITHER,75,160,65,20)
     AddGadgetItem(#DITHER,-1,"None")
     AddGadgetItem(#DITHER,-1,"Floyd")
     AddGadgetItem(#DITHER,-1,"Bayer")
-
     SetGadgetState(#DITHER,dither)
     
-    FrameGadget(#PB_Any,150,120,65,70,"Output")
+    fgadget=FrameGadget(#PB_Any,150,120,65,65,"Output")
+    Center_Frame(fgadget)
     TextGadget(#PB_Any,155,140,55,20,"Format",#PB_Text_Center)
     ComboBoxGadget(#OUTPUT_ITYPE_COMBO,155,160,55,20)
     AddGadgetItem(#OUTPUT_ITYPE_COMBO,-1,"IFF")
@@ -439,7 +524,8 @@ Procedure Create_Window()
     AddGadgetItem(#OUTPUT_ITYPE_COMBO,-1,"PDF")
     SetGadgetState(#OUTPUT_ITYPE_COMBO,itype)
     
-    FrameGadget(#PB_Any,220,120,100,70,"Colour")
+    fgadget=FrameGadget(#PB_Any,220,120,100,65,"Colour")
+    Center_Frame(fgadget)
     TextGadget(#PB_Any,240,140,70,20,"Set Colours")
     ComboBoxGadget(#COLOUR_COMBO,225,160,90,20,#PB_ComboBox_Editable)
     AddGadgetItem(#COLOUR_COMBO,-1,"8")
@@ -453,27 +539,31 @@ Procedure Create_Window()
     AddGadgetItem(#COLOUR_COMBO,-1,"32Bit")
     SetGadgetState(#COLOUR_COMBO,colour_num)
     
-    CanvasGadget(#IMAGE_GADGET,435,5,230,185,#PB_Canvas_Border)
-    
-    EnableGadgetDrop(#IMAGE_GADGET,#PB_Drop_Files,#PB_Drag_Copy)
+    CanvasGadget(#IMAGE_CANVAS,435,5,230,180,#PB_Canvas_Border)   
+    EnableGadgetDrop(#IMAGE_CANVAS,#PB_Drop_Files,#PB_Drag_Copy)
     
     Resume_Window(#MAIN_WINDOW)
     
     Protected hComboEdit = FindWindowEx_(GadgetID(#COLOUR_COMBO), #Null, "Edit", #Null) 
     SetWindowLong_(hComboEdit, #GWL_STYLE, GetWindowLong_(hComboEdit, #GWL_STYLE) | #ES_NUMBER)
     
-    ButtonGadget(#START_BUTTON,325,122,50,22,"Start")
+    FrameGadget(#PB_Any,325,50,105,130,"")
+    ButtonGadget(#PREVIEW_BUTTON,327,65,50,22,"Preview")
+    DisableGadget(#PREVIEW_BUTTON,1)
+    ButtonGadget(#CLIP_BUTTON,377,65,50,22,"Paste")
+    ButtonGadget(#BATCH_BUTTON,327,92,50,22,"Batch")
+    ButtonGadget(#RESET_BUTTON,377,92,50,22,"Reset")
+    ButtonGadget(#START_BUTTON,333,120,90,30,"Start")
     DisableGadget(#START_BUTTON,1)
-    ButtonGadget(#CLIP_BUTTON,380,122,50,22,"Paste")
-    ButtonGadget(#BATCH_BUTTON,325,149,50,22,"Batch")
-    ButtonGadget(#RESET_BUTTON,380,149,50,22,"Reset")
-    CheckBoxGadget(#OVERWRITE_TOGGLE,325,171,105,22,"Overwrite Files?",#PB_CheckBox_Center)
+    CheckBoxGadget(#OVERWRITE_TOGGLE,340,155,75,22,"Overwrite?",#PB_CheckBox_Center)
     Make_Command_line()
     SetGadgetText(#COMMAND_STRING,commandline)
     SetGadgetState(#OVERWRITE_TOGGLE,overwrite)
     DisableGadget(#VERT_RES_STRING,#True)
     DisableGadget(#HORIZ_RES_STRING,#True)
+    
   EndIf
+  
 EndProcedure
 
 Procedure Reset_Gadgets()
@@ -504,8 +594,8 @@ Procedure Reset_Gadgets()
     
   If IsImage(0) : FreeImage(0) : EndIf
   
-  StartDrawing(CanvasOutput(#IMAGE_GADGET))
-  Box(0,0,DpiX(GadgetWidth(#IMAGE_GADGET)),DpiY(GadgetHeight(#IMAGE_GADGET)),#White)
+  StartDrawing(CanvasOutput(#IMAGE_CANVAS))
+  Box(0,0,DpiX(GadgetWidth(#IMAGE_CANVAS)),DpiY(GadgetHeight(#IMAGE_CANVAS)),#White)
   StopDrawing()
   
   SetGadgetText(#INPUT_STRING,input_name)
@@ -518,6 +608,7 @@ Procedure Reset_Gadgets()
   SetGadgetState(#COLOUR_COMBO,colour_num)
   SetGadgetState(#QUICK_RES_COMBO,q_res)
   SetGadgetState(#OUTPUT_ITYPE_COMBO,itype)
+  DisableGadget(#PREVIEW_BUTTON,#True)
   DisableGadget(#START_BUTTON,#True )
   DisableGadget(#DITHER,#False)
   DisableGadget(#RESIZE_METHOD,#False)
@@ -538,7 +629,7 @@ Procedure Update_Image(i_path.s)
   If GetExtensionPart(i_path)="png" Or GetExtensionPart(i_path)="jpg"
     If LoadImage(0,i_path)
       ResizeImage(0,DesktopScaledX(230),DesktopScaledY(185),#PB_Image_Smooth)
-      StartDrawing(CanvasOutput(#IMAGE_GADGET))
+      StartDrawing(CanvasOutput(#IMAGE_CANVAS))
       DrawImage(ImageID(0),0,0)
       StopDrawing()
     Else
@@ -552,7 +643,7 @@ Procedure Update_Image(i_path.s)
     If LoadImage(0,GetTemporaryDirectory()+GetFilePart(i_path,#PB_FileSystem_NoExtension)+".png")
       DeleteFile(GetTemporaryDirectory()+GetFilePart(i_path,#PB_FileSystem_NoExtension)+".png")
       ResizeImage(0,DesktopScaledX(230),DesktopScaledY(185),#PB_Image_Smooth)
-      StartDrawing(CanvasOutput(#IMAGE_GADGET))
+      StartDrawing(CanvasOutput(#IMAGE_CANVAS))
       DrawImage(ImageID(0),0,0)
       StopDrawing()
     Else
@@ -563,7 +654,7 @@ Procedure Update_Image(i_path.s)
   If GetExtensionPart(i_path)="iff"
     If Load_IFF(i_path,0)
       ResizeImage(0,DesktopScaledX(230),DesktopScaledY(185),#PB_Image_Smooth)
-      StartDrawing(CanvasOutput(#IMAGE_GADGET))
+      StartDrawing(CanvasOutput(#IMAGE_CANVAS))
       DrawImage(ImageID(0),0,0)
       StopDrawing()
     Else
@@ -584,10 +675,32 @@ Create_Window()
 ;- Main Loop
 
 Repeat
+  
   event=WaitWindowEvent()
   gadget=EventGadget()
   type=EventType()
+  
   Select event
+      
+    Case #WM_KEYDOWN
+      
+      If EventwParam() = #VK_F1
+        If IsWindow(#PREVIEW_WINDOW)
+          CloseWindow(#PREVIEW_WINDOW)
+          If zoom=1 
+            ResizeImage(#PREVIEW_IMAGE,ImageWidth(#PREVIEW_IMAGE)*2,ImageHeight(#PREVIEW_IMAGE)*2,#PB_Image_Raw) 
+            zoom=2
+          Else
+            ResizeImage(#PREVIEW_IMAGE,ImageWidth(#PREVIEW_IMAGE)/2,ImageHeight(#PREVIEW_IMAGE)/2,#PB_Image_Raw)
+            zoom=1
+          EndIf
+          OpenWindow(#PREVIEW_WINDOW, 0, 0, DesktopUnscaledX(ImageWidth(#PREVIEW_IMAGE)), DesktopUnscaledY(ImageHeight(#PREVIEW_IMAGE)), "Preview Window (F1 to Zoom)", #PB_Window_SystemMenu | #PB_Window_WindowCentered, WindowID(#MAIN_WINDOW))
+          CanvasGadget(#PREVIEW_IMAGE_CANVAS,0,0,WindowWidth(#PREVIEW_WINDOW),WindowHeight(#PREVIEW_WINDOW))
+          Draw_Preview()
+        EndIf
+        Window_Update()
+      EndIf
+      
     Case #PB_Event_GadgetDrop
       path=EventDropFiles()
       count=CountString(path,#LF$)
@@ -603,6 +716,7 @@ Repeat
             SetGadgetText(#INPUT_STRING,input_name) 
             SetGadgetText(#OUTPUT_STRING,output_name+"."+itype_ext)
             DisableGadget(#START_BUTTON,0)
+            DisableGadget(#PREVIEW_BUTTON,0)
             Update_Image(path)
             Update_Commandline()
           Else
@@ -610,9 +724,23 @@ Repeat
           EndIf
         EndIf
       EndIf
-    Case #PB_Event_CloseWindow : Break
+      
+    Case #PB_Event_CloseWindow 
+      If IsWindow(#PREVIEW_WINDOW)
+        CloseWindow(#PREVIEW_WINDOW)
+        zoom=1
+        Window_Update()
+        DeleteFile(Home_Path+"preview.png")
+        DisableWindow(#MAIN_WINDOW,#False)
+      Else
+        Break
+      EndIf
+ 
+      
     Case #PB_Event_Gadget
+      
       Select gadget
+          
         Case #OUTPUT_ITYPE_COMBO
           If type=#PB_EventType_Change
             itype=GetGadgetState(#OUTPUT_ITYPE_COMBO)
@@ -646,16 +774,19 @@ Repeat
               DisableGadget(#COLOUR_COMBO,#True)
             EndIf
           EndIf  
+          
         Case #VERT_RES_STRING
           If EventType()=#PB_EventType_Change
             vert_res=Val(GetGadgetText(#VERT_RES_STRING))
             Update_Commandline()
           EndIf
+          
          Case #HORIZ_RES_STRING
           If EventType()=#PB_EventType_Change
             horiz_res=Val(GetGadgetText(#HORIZ_RES_STRING))
             Update_Commandline()
           EndIf         
+          
         Case #QUICK_RES_COMBO
           option=GetGadgetState(#QUICK_RES_COMBO)
           Select option 
@@ -710,19 +841,24 @@ Repeat
           SetGadgetText(#HORIZ_RES_STRING,Str(horiz_res))
           SetGadgetText(#VERT_RES_STRING,Str(vert_res))
           Update_Commandline()
+          
         Case #RESIZE_METHOD
           resize=GetGadgetState(#RESIZE_METHOD)
           Update_Commandline()
+          
         Case #OUTPUT_STRING
           output_name=GetGadgetText(#OUTPUT_STRING)
           output_name=RemoveString(output_name,".iff")
           Update_Commandline()
+          
         Case #DITHER
           dither=GetGadgetState(#DITHER)
           Update_Commandline()
+          
         Case #OVERWRITE_TOGGLE
           overwrite=GetGadgetState(#OVERWRITE_TOGGLE)
           Update_Commandline()
+          
         Case #COLOUR_COMBO
           If type=#PB_EventType_Change
             If GetGadgetText(#COLOUR_COMBO) <> "32Bit"
@@ -732,6 +868,7 @@ Repeat
             EndIf
             Update_Commandline()
           EndIf
+          
         Case #INPUT_BUTTON
           path=OpenFileRequester("Select Input Image",input_path,"Image (*.png,*.jpg,*.iff,*.webp)|*.png;*.jpg;*.iff;*.webp",0)
           If path<>""
@@ -749,6 +886,7 @@ Repeat
               MessageRequester("Error","Invalid file type!",#PB_MessageRequester_Error|#PB_MessageRequester_Ok)
             EndIf
           EndIf
+          
         Case #OUTPUT_BUTTON
           path=InputRequester("Select Output Image Name","Enter A Filename","")
           If path<>""
@@ -757,9 +895,9 @@ Repeat
             SetGadgetText(#OUTPUT_STRING,output_name+"."+itype_ext)
             Update_Commandline()
           EndIf
+          
         Case #START_BUTTON
-
-          Make_Full_Command_line()
+          Make_Full_Command_line(#False)
           If MessageRequester("Warning","Create new file?",#PB_MessageRequester_Warning|#PB_MessageRequester_YesNo)=#PB_MessageRequester_Yes 
             OpenConsole()
             Center_Console()
@@ -768,13 +906,17 @@ Repeat
             CloseConsole()
             RunProgram(output_path,"","")
           EndIf
+          
         Case #RESET_BUTTON
           Reset_Gadgets()
+          
         Case #BATCH_BUTTON
           Batch_Convert()
+          
         Case #APPEND_STRING
           append=GetGadgetText(#APPEND_STRING)
           Update_Commandline()
+          
         Case #CLIP_BUTTON
           If GetClipboardImage(#TEMP_IMAGE)
             path=Home_Path+"Clip_Image.png"
@@ -787,21 +929,25 @@ Repeat
             SetGadgetText(#INPUT_STRING,input_name) 
             SetGadgetText(#OUTPUT_STRING,output_name+"."+itype_ext)
             DisableGadget(#START_BUTTON,0)
+            DisableGadget(#PREVIEW_BUTTON,0)
             Update_Image(path)
             Update_Commandline()
           Else
             MessageRequester("Error","No image in clipboard!",#PB_MessageRequester_Ok|#PB_MessageRequester_Error)
           EndIf
-        
+          
+        Case #PREVIEW_BUTTON
+          Preview_Window()
+          
       EndSelect
   EndSelect
 ForEver
 
 End    
 ; IDE Options = PureBasic 6.21 (Windows - x64)
-; CursorPosition = 49
-; FirstLine = 27
-; Folding = wQ5
+; CursorPosition = 52
+; FirstLine = 12
+; Folding = SDA+
 ; Optimizer
 ; EnableThread
 ; EnableXP
