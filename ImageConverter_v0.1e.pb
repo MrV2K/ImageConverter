@@ -429,7 +429,6 @@ Procedure Preview_Window()
   SetActiveWindow(#PREVIEW_WINDOW)
   
   Draw_Preview()
-  
 EndProcedure
 
 Procedure Create_Window()
@@ -505,7 +504,7 @@ Procedure Create_Window()
     CheckBoxGadget(#KEEP_ASPECT_CHECKBOX,40,60,150,20,"Keep Image Aspect",#PB_CheckBox_Center)
     
     ButtonGadget(#BACKGROUND_COLOUR_BUTTON,5,85,50,20,"Select")
-    TextGadget(#PB_Any,60,85,140,22,"Image Background Colour")
+    TextGadget(#PB_Any,60,86,140,21,"Image Background Colour")
     DisableGadget(#BACKGROUND_COLOUR_BUTTON,#True)   
     
     CloseGadgetList()
@@ -975,9 +974,9 @@ ForEver
 
 End    
 ; IDE Options = PureBasic 6.40 (Windows - x64)
-; CursorPosition = 806
-; FirstLine = 253
-; Folding = AAA+
+; CursorPosition = 506
+; FirstLine = 211
+; Folding = AAI+
 ; Optimizer
 ; EnableThread
 ; EnableXP
