@@ -63,6 +63,8 @@ Global Version.s="v0.1e"
 ;
 ;- ############### Enumerations
 
+EnableExplicit
+
 Enumeration
   #MAIN_WINDOW
   #PREVIEW_WINDOW
@@ -127,6 +129,7 @@ Global overwrite.b=#True
 Global append.s=""
 Global zoom=1
 Global preview_w, preview_h
+Global cr,cb,cg, hWnd
 
 ;- ############### Procedures
 
@@ -159,6 +162,10 @@ EndMacro
 
 Macro Make_Command_line()
   
+  cr=Red(back_colour)
+  cg=Green(back_colour)
+  cb=Blue(back_colour)  
+  
   commandline=""
   commandline+GetFilePart(NConvert_Path) 
   If overwrite
@@ -176,8 +183,13 @@ Macro Make_Command_line()
     commandline+" -c 1"
   EndIf
   
+  If keep_aspect
+    commandline+" -ratio"
+  EndIf  
+      
   If itype<>2
     If vert_res<>0 And horiz_res<>0
+
       commandline+" -resize "+horiz_res+" "+vert_res
         Select resize
         Case 1 : full_commandline+" -rtype quick"
@@ -192,6 +204,10 @@ Macro Make_Command_line()
         Case 10 : full_commandline+" -rtype lanczos2"
         EndSelect
     EndIf
+  EndIf
+  
+  If keep_aspect
+    commandline+" -bgcolor "+Str(cr)+" "+Str(cg)+" "+Str(cb)+" "+" -canvas "+horiz_res+" "+vert_res+" center -resize "+horiz_res+" "+vert_res
   EndIf
   
   If itype=0
@@ -216,6 +232,10 @@ Procedure Make_Full_Command_line(preview.b)
   
   Protected n_ext.s, n_path.s
   
+  cr=Red(back_colour)
+  cg=Green(back_colour)
+  cb=Blue(back_colour)  
+  
   full_commandline=""
   
   If overwrite
@@ -239,6 +259,9 @@ Procedure Make_Full_Command_line(preview.b)
   
   If itype<>2
     If vert_res<>0 And horiz_res<>0
+      If keep_aspect
+        full_commandline+" -ratio"
+      EndIf
       full_commandline+" -resize "+horiz_res+" "+vert_res
       Select resize
         Case 1 : full_commandline+" -rtype quick"
@@ -254,6 +277,10 @@ Procedure Make_Full_Command_line(preview.b)
       EndSelect
     EndIf
   EndIf
+
+  If keep_aspect
+    full_commandline+" -bgcolor "+Str(cr)+" "+Str(cg)+" "+Str(cb)+" "+" -canvas "+horiz_res+" "+vert_res+" center -resize "+horiz_res+" "+vert_res
+  EndIf
   
   If itype=0
     If colours<>0
@@ -263,8 +290,8 @@ Procedure Make_Full_Command_line(preview.b)
         Case 2 : full_commandline+" -dither"
       EndSelect
     EndIf
-  EndIf
-   
+  EndIf  
+  
   If input_name<>""
     full_commandline+" "+#DOUBLEQUOTE$+input_path+input_name+#DOUBLEQUOTE$
   EndIf
@@ -301,7 +328,6 @@ EndMacro
 Procedure Batch_Convert()
    
   Protected NewList Batch_list.s()
-  Protected Hwnd
   
   input_path=PathRequester("Select A Folder",Home_Path)
   If input_path<>""
@@ -367,7 +393,7 @@ EndProcedure
 Procedure Batch_Convert_Drop(filelist.s)
    
   Protected NewList Batch_list.s()
-  Protected Hwnd
+  Protected i
   
   count=CountString(filelist,#LF$)
 
@@ -410,10 +436,14 @@ Procedure Batch_Convert_Drop(filelist.s)
 EndProcedure
 
 Procedure Preview_Window()
-  
+    
   OpenConsole("Processing...")
   Center_Console()
   
+  If FileSize(Home_Path+"preview.png")>-1
+    DeleteFile(Home_Path+"preview.png")
+  EndIf
+    
   Make_Full_Command_line(#True)
   RunProgram(GetFilePart(NConvert_Path),full_commandline,GetPathPart(NConvert_Path),#PB_Program_Wait)
   
@@ -429,6 +459,7 @@ Procedure Preview_Window()
   SetActiveWindow(#PREVIEW_WINDOW)
   
   Draw_Preview()
+  
 EndProcedure
 
 Procedure Create_Window()
@@ -686,6 +717,8 @@ EndProcedure
 UseJPEGImageDecoder()
 UsePNGImageDecoder()
 
+DeleteFile(Home_Path+"Clip_Image.png")
+
 Create_Window()
 
 ;- Main Loop
@@ -794,6 +827,7 @@ Repeat
         Case #BACKGROUND_COLOUR_BUTTON
           back_colour=ColorRequester()
           Update_Image(path)
+          Update_Commandline()
           
         Case #KEEP_ASPECT_CHECKBOX
           keep_aspect=GetGadgetState(#KEEP_ASPECT_CHECKBOX)
@@ -803,6 +837,7 @@ Repeat
             DisableGadget(#BACKGROUND_COLOUR_BUTTON,#False)
           EndIf
           Update_Image(path)
+          Update_Commandline()
           
         Case #VERT_RES_STRING
           If EventType()=#PB_EventType_Change
@@ -974,14 +1009,14 @@ ForEver
 
 End    
 ; IDE Options = PureBasic 6.40 (Windows - x64)
-; CursorPosition = 506
-; FirstLine = 211
-; Folding = AAI+
+; CursorPosition = 198
+; FirstLine = 163
+; Folding = hBP+
 ; Optimizer
 ; EnableThread
 ; EnableXP
 ; DPIAware
 ; UseIcon = icon.ico
 ; Executable = E:\ImageConvert\ImageConverter.exe
-; Compiler = PureBasic 6.21 (Windows - x64)
+; Compiler = PureBasic 6.40 - C Backend (Windows - x64)
 ; Debugger = Standalone
